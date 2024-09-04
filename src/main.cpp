@@ -3,125 +3,169 @@
 #include <Servo.h>
 #include <NewPing.h>
 
+#define leftIR 2
+#define rightIR 3
 
-int IrRight = 2;
-int IrLeft = 3;
+#define ir 12
 
-int ir = 4;
-//int servoRight = 5;
-//int servoLeft = 6;
+#define echo 16
+#define trigger 17
 
-int echo = 16;
-int trigger = 17;
-int maxDistance = 40;
+Servo rightServo;
+Servo leftServo;
 
-
-Servo servoRight;
-Servo servoLeft;
-NewPing sonar(trigger, echo, maxDistance);
-
-
-bool combatMode = false;
-
-void Evasion();
-void Parado();
-void GirarDerecha();
-void Adelante();
+NewPing sonar(trigger, echo, 100);
 
 void setup() {
-  pinMode(IrRight, INPUT); 
-  pinMode(IrLeft, INPUT);
-  pinMode(echo, INPUT);   
-  pinMode(trigger, OUTPUT); 
-  
-  servoRight.attach(6);     
-  servoLeft.attach(5); 
-  
-  Serial.begin(9600);
+    Serial.begin(9600);
 
-  IrReceiver.begin(ir, ENABLE_LED_FEEDBACK);
-  Serial.println("Waiting for command...");
+    pinMode(leftIR, INPUT);
+    pinMode(rightIR, INPUT);
+    pinMode(ir, INPUT);
+
+    rightServo.attach(5);
+    leftServo.attach(6);
+
+    IrReceiver.begin(ir, ENABLE_LED_FEEDBACK);
+
 }
 
+bool combatMode = false;
+bool infosensores = false;
+int distance;
 void loop() {
-  if(IrReceiver.decode()) {
-    Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
+    if(IrReceiver.decode()) {
+        switch (IrReceiver.decodedIRData.decodedRawData) {
+            case 0xFD020707: //power
+                combatMode = true;
+                Serial.println("CombatMode ON");
+                break;
 
-    switch (IrReceiver.decodedIRData.decodedRawData) {
-      case 0xFD020707: // power button
-        combatMode = !combatMode; 
-        if (combatMode) {
-          Serial.println("CombatMode ON");
-        } else if(!combatMode) {
-          Serial.println("CombatMode OFF");
+            case 0xFE010707: //source button
+                combatMode = false;
+                Serial.println("CombatMode OFF");
+                break;
+
+            case 0x9A650707: //left arrow
+                Serial.println("Probando servo izquierdo adelante");
+                leftServo.write(180);
+                break;
+
+            case 0xF7080707: //number 4
+                Serial.println("Probando servo izquierdo atrás");
+                leftServo.write(0);
+                break;
+
+            case 0x9D620707: //right arrow
+                Serial.println("Probando servo derecho adelante");
+                rightServo.write(0);
+                break;
+
+            case 0xF50A0707: //number 6
+                Serial.println("Probando servo derecho atrás");
+                rightServo.write(180);
+                break;
+
+            case 0x936C0707: //A rojo
+                Serial.println("Todos los motores adelante");
+                rightServo.write(0);
+                leftServo.write(180);
+                break;
+
+            case 0xEB140707: //B verde
+                Serial.println("Todos los motores en reversa");
+                rightServo.write(180);
+                leftServo.write(0);
+                break;
+
+            case 0xEA150707: //c amarillo
+                Serial.println("Girando a la izquierda");
+                rightServo.write(0);
+                leftServo.write(0);
+                break;
+
+            case 0xE9160707: //d azul
+                Serial.println("Girando a la derecha");
+                rightServo.write(180);
+                leftServo.write(180);
+                break;
+
+            case 0xD22D0707: //exit
+                Serial.println("PARANDO TODOS LOS MOTORES y apagando modo combate");
+                leftServo.write(90);
+                rightServo.write(90);
+                combatMode = false;
+                infosensores = false;
+                break;
+
+            case 0xE01F0707: //info
+                //infosensores
+                infosensores=true;
+
+            default:
+                Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
+                break;
         }
-      break;
-    
-      default:
-      break;
-    }
     IrReceiver.resume();
-  }
 
-  
-  //uS = sonar.ping();
-  //cm = sonar.convert_cm(uS);
-  //Serial.println(cm);
-
-  if(combatMode) {
-    if(!digitalRead(IrRight) || !digitalRead(IrLeft)) {
-      Evasion();
     }
 
-    if(sonar.ping_cm() != 0) {//cambiar medida importante
-      Adelante();
+    if(combatMode) {
+        if(!digitalRead(rightIR) || !digitalRead(leftIR)) {
+            //estoy pisando algo blanco, voy en reversa
+            leftServo.write(0);
+            rightServo.write(180);
+            Serial.println("pisando blanco");
+        } else {
+            //estoy pisando negro, estoy seguro, sigo girando para buscar y luego atacar
+            distance = sonar.ping_cm();
+            Serial.print("Distance: ");
+            Serial.print(distance);
+            Serial.println(" cm");
+
+            if (distance == 0) {
+                // no se encunetra objeto sigo girando
+                Serial.println("Girando a la izquierda");
+                rightServo.write(0);
+                leftServo.write(0);
+            } else {
+                //tengo algo alfrente, entonces ataco
+                rightServo.write(0);
+                leftServo.write(180);
+            }
+        }
     } else {
-      //girarderecha (buscar oponente)
-      GirarDerecha();
+        leftServo.write(90);
+        rightServo.write(90);
     }
-  } else {
-    Parado();
-  }
+
+    if(infosensores) {
+        distance = sonar.ping_cm();
+        Serial.print("Distance: ");
+        Serial.print(distance);
+        Serial.println(" cm");
+
+
+        Serial.print("IRright: ");
+        if(digitalRead(rightIR)) {
+            Serial.println("negro");
+        } else {
+            Serial.println("blanco");
+        }
+        
+        Serial.print("IRleft: ");
+        if(digitalRead(leftIR)) {
+            Serial.println("negro");
+        } else {
+            Serial.println("blanco");
+        }
+
+        Serial.println("--------------------");
+        delay(200);
+    }
 }
 
 
+// if ir == false --> white
 
-
-
-void GirarDerecha() {
-  Serial.println("girando derecha y Buscando Enemigo...");
-  servoRight.write(120);
-  servoLeft.write(120);
-  delay(50);
-}
-void GirarIzquierda() {
-  servoRight.write(0);
-  servoLeft.write(0);
-  delay(50);
-}
-void Adelante() {
-  Serial.println("ATACANDO");
-  servoRight.write(0);
-  servoLeft.write(180);
-  delay(100);
-}
-
-void Atras() {
-  servoRight.write(180);
-  servoLeft.write(0);
-  delay(50);
-}
-
-void Parado() {
-  servoRight.write(90);
-  servoLeft.write(90);
-  delay(50);
-}
-
-void Evasion() {
-  Parado();
-  delay(100);
-  Serial.println("Evasion");
-  Atras();
-  delay(1000);
-}
+// if ir == true --> black
